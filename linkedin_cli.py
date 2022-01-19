@@ -1,21 +1,23 @@
 import os
-import re
 import sys
 import time
 import json
+import traceback
+
 import xlwt
-import requests
 import datetime
 import subprocess
 from random import randint
 from linkedin_api import Linkedin
-from tinydb import TinyDB, Query, where
+from tinydb import TinyDB, where
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver.common.action_chains import ActionChains
+
+import logging
+from selenium.webdriver.remote.remote_connection import LOGGER as LOGGER_SELENIUM
+LOGGER_SELENIUM.setLevel(logging.ERROR)
 
 
 profile = webdriver.ChromeOptions()
@@ -67,37 +69,110 @@ def parse_from_linkedin_search(url, page, path, driver):
     driver.execute_script("window.scrollTo(0, 850);")
     time.sleep(1)
     driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-    urls = driver.find_elements_by_class_name('app-aware-link')
-    urls = [url.get_attribute("href") for url in urls]
-    positions = driver.find_elements_by_class_name('entity-result__primary-subtitle')
-    position_list = [i.text for i in positions]
-    profiles_url = re.findall(r'https:\/\/www\.linkedin\.com\/in\/\S+', ' '.join(urls))
-    links = list(dict.fromkeys(profiles_url))
-    links = [link for link in links if link.replace('https://www.linkedin.com/in/', '').replace('/', '')[:2] != 'AC']
-    print(len(links))
+    # urls = driver.find_elements_by_class_name('app-aware-link')
+    # urls = [url.get_attribute("href") for url in urls]
+    candidates = []
+    for row in range(10):
+        li_index = row + 1
+        try:
+            link = driver.find_element_by_xpath(f'//*[@id="main"]/div/div/div[2]/ul/li[{li_index}]/div/div/div[2]/div[1]/div[1]/div/span[1]/span/a').get_attribute('href')
+        except NoSuchElementException:
+            link = None
+        try:
+            position = driver.find_element_by_xpath(f'//*[@id="main"]/div/div/div[2]/ul/li[{li_index}]/div/div/div[2]/div[1]/div[2]/div/div[1]').text
+        except NoSuchElementException:
+            position = None
+        candidates.append({'position': position, 'linkedin': link})
+    # //*[@id="main"]/div/div/div[2]/ul/li[1]/div/div/div[2]/div[1]/div[1]/div/span[1]/span/a
+    # //*[@id="main"]/div/div/div[2]/ul/li[2]/div/div/div[2]/div[1]/div[1]/div/span[1]/span/a
+    # //*[@id="main"]/div/div/div[2]/ul/li[1]/div/div/div[2]/div[1]/div[2]/div/div[1]
+    # positions = driver.find_elements_by_class_name('entity-result__primary-subtitle')
+    # position_list = [i.text for i in positions]
+    # profiles_url = re.findall(r'https:\/\/www\.linkedin\.com\/in\/\S+', ' '.join(urls))
+    # links = list(dict.fromkeys(profiles_url))
+    # links = [link for link in links if link.replace('https://www.linkedin.com/in/', '').replace('/', '')[:2] != 'AC']
+    # print(len(links))
 
-    for i in range(len(links)):
-        name = links[i].replace('https://www.linkedin.com/in/', '').replace('/', '')
-        parser = {'position' : str(position_list[i]), 'linkedin' : str(links[i])}
+    # for ind, link in enumerate(links):
+    for candidate in candidates:
+        name = candidate['linkedin'][28:candidate['linkedin'].find('?')].replace('/', '')  # removed  'https://www.linkedin.com/in/'
+        parser = candidate
         save_to_file(f'{path}/nsort/{name}.json', parser)
 
 
-def start_parse(start, end, login, password, url, path):
-    driver = webdriver.Chrome(executable_path=f'{os.getcwd()}/chromedriver', chrome_options=profile) # firefox_profile=firefox_profile
-    driver.set_page_load_timeout(60)
-    pages = [i for i in range(int(start), int(end) + 1)]
-    linkedin_login(login, password, driver)
+def start_parse(start, end, login, password, url, path, excel: str = None):
+    def parse_candidates(_page, _driver):
+        search_url = f'{url}&page={_page}'
+        _driver.get(search_url)
+        time.sleep(3)
+        _driver.execute_script("window.scrollTo(0, 450);")
+        time.sleep(3)
+        _driver.execute_script("window.scrollTo(0, 850);")
+        time.sleep(1)
+        _driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
 
-    for page in pages:
+        _candidates = []
+        for row in range(10):
+            li_index = row + 1
+            try:
+                link = _driver.find_element_by_xpath(
+                    f'//*[@id="main"]/div/div/div[2]/ul/li[{li_index}]/div/div/div[2]/div[1]/div[1]/div/span[1]/span/a').get_attribute(
+                    'href')
+            except NoSuchElementException:
+                link = None
+            try:
+                position = _driver.find_element_by_xpath(
+                    f'//*[@id="main"]/div/div/div[2]/ul/li[{li_index}]/div/div/div[2]/div[1]/div[2]/div/div[1]').text
+            except NoSuchElementException:
+                position = None
+            _candidates.append({'position': position, 'linkedin': link})
+        return _candidates
 
-        parse_from_linkedin_search(url, page, path, driver)
+    def save_json_candidates(_candidates):
+        for candidate in _candidates:
+            name = candidate['linkedin'][28:candidate['linkedin'].find('?')].replace('/', '')  # removed  'https://www.linkedin.com/in/'
+            save_to_file(f'{path}/nsort/{name}.json', candidate)
 
-        time.sleep(randint(1, 5))
-        print(f'Парсинг страницы номер {str(page)}')
+    def save_excel_candidates(_candidates):
+        excel_file = xlwt.Workbook()
+        sheet = excel_file.add_sheet('nsort', cell_overwrite_ok=True)
+        sheet.write(0, 0, 'Linkedin')
+        sheet.write(0, 1, 'position')
 
-    driver.quit()
-    
+        for row, candidate in enumerate(_candidates):
+            row += 1
+
+            sheet.write(row, 0, candidate['linkedin'])
+            sheet.write(row, 1, candidate['position'])
+
+        excel_file.save(f'{path}{excel}.xlsx')
+
+    with webdriver.Chrome(executable_path=f'{os.getcwd()}/chromedriver', chrome_options=profile) as driver:  # firefox_profile=firefox_profile
+        driver.set_page_load_timeout(60)
+        pages = [i for i in range(int(start), int(end) + 1)]
+        linkedin_login(login, password, driver)
+
+        candidates = []
+
+        for page in pages:
+
+            candidates.extend(parse_candidates(_page=page, _driver=driver))
+
+            time.sleep(randint(1, 5))
+
+            print(f'Парсинг страницы номер {str(page)}')
+
+        save_json_candidates(candidates)
+        print('json файлы сохранены')
+        if excel:
+            try:
+                save_excel_candidates(candidates)
+                print(f"в excel сохранено {len(candidates)}")
+            except:
+                print(f'Ошибка сохранения excel...\n\n{traceback.format_exc()}')
+
     return menu(path)
+
 
 def sort_for_parse(words, path):
     data = add_to_list(path + 'nsort/')
@@ -462,8 +537,11 @@ f'''Чтобы запустить парсер из поиска линкеди�
             end = int(input())
             print('Введите url для парсинга:')
             url = str(input())
-            print('Запускаю парсер, пожалуйста не закрывайте окно браузера, оно закроется автоматически по окончанию работы и вернёт вас в главное меню...')
-            start_parse(start, end, login, password, url, path)
+            excel = input('Если хотите сохранить результат в excel, введите название файла\n(Оставьте пустым если не желаете):\n')
+            print(
+                'Запускаю парсер, пожалуйста не закрывайте окно браузера, оно закроется автоматически по окончанию работы и вернёт вас в главное меню...'
+            )
+            start_parse(start, end, login, password, url, path, excel=excel)
     elif choice == 2:
         print('Чтобы продолжить сортировку введите 1, чтобы вернуться в меню введите 0:')
         re_choice = int(input())
@@ -611,5 +689,7 @@ if __name__ == '__main__':
 
     try:
         menu(path)
-    except Exception as e:
-        print(e)
+    except SystemExit:
+        print('Пока...')
+    except:
+        print(traceback.format_exc())
