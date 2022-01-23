@@ -347,6 +347,7 @@ def sort_for_invite(path, exp_start, exp_end, skills_list, excel=None):
     for item in data:
         parser = {
             'linkedin': item["linkedin_link"],
+            'fill_name': f"{item['lastname']} {item['firstname']}",
             'skills': item['skills'],
             'positions': item['positions'],
             'education': item['education']
@@ -368,7 +369,7 @@ def sort_for_invite(path, exp_start, exp_end, skills_list, excel=None):
     if excel:
         save_excel_func(
             data=added_to_excel,
-            headers=['linkedin', 'skills', 'positions', 'education'],
+            headers=['fill_name', 'linkedin', 'skills', 'positions', 'education'],
             path=path,
             file_name=excel,
             sheet_name='invite'
