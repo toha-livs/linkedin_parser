@@ -227,8 +227,9 @@ def full_parser(path, api, start_slice, end_slice):
     for profile in data[int(start_slice) - 1:int(end_slice)]:
         profile = profile['linkedin']
         linkedin_url = profile
-        print(linkedin_url)
-        profile_name = profile.replace('https://www.linkedin.com/in/', '').replace('/', '').replace('?locale=en_US', '')
+
+        profile_name = clean_id_from_link(profile)
+        # profile_name = profile.replace('https://www.linkedin.com/in/', '').replace('/', '').replace('?locale=en_US', '')
 
         page = api.get_profile(public_id=profile_name)
 
@@ -297,7 +298,7 @@ def full_parser(path, api, start_slice, end_slice):
         email = contact_info['email_address']
         phone_numbers = contact_info['phone_numbers']
 
-        parser = {'profile_id' : profile_id, 'firstname' : firstname, 'lastname' : lastname, 'linkedin_link' : linkedin_url,'location' : location, 'experience' : experience, 'positions' : positions, 'skills' : skills, 'education' : education, 'email' : email, 'phone_numbers' : phone_numbers}
+        parser = {'profile_id': profile_id, 'firstname': firstname, 'lastname': lastname, 'linkedin_link': linkedin_url, 'location': location, 'experience': experience, 'positions': positions, 'skills': skills, 'education': education, 'email': email, 'phone_numbers' : phone_numbers}
         save_to_file(f'{path}full/{str(profile_id)}.json', parser)
         counter += 1
         print(f'Сохранено {str(counter)} профилей')
@@ -310,16 +311,22 @@ def full_parser(path, api, start_slice, end_slice):
 def start_full_parse(path):
     print('Введите код vpn сервера:')
     server = input()
-    print('Введите логин linkedin аккаунта для парсинга:')
-    login_full = str(input())
-    print('Введите пароль linkedin аккаунта для парсинга:')
-    password_full = str(input())
+    if os.environ.get('login'):
+        login_full = os.environ['login']
+    else:
+        print('Введите логин linkedin аккаунта для парсинга:')
+        login_full = str(input())
+    if os.environ.get('password'):
+        password_full = os.environ['password']
+    else:
+        print('Введите пароль linkedin аккаунта для парсинга:')
+        password_full = str(input())
     print('Введите начальный срез:')
     start_slice = str(input())
     print('Введите конечный срез:')
     end_slice = str(input())
     print('Запускаю процесс полного парсинга, напоминаю, что с одного аккаунта нельза парсить больше 300 профилей в сутки, после окончания произойдёт возврат в главное меню')
-    subprocess.run(['sudo', 'nordvpn', 'c', server])
+    # subprocess.run(['sudo', 'nordvpn', 'c', server])
     api = Linkedin(login_full, password_full)
 
     # try:
@@ -327,7 +334,7 @@ def start_full_parse(path):
     # except Exception as e:
     #     print(e)
 
-    subprocess.run(['sudo', 'nordvpn', 'd'])
+    # subprocess.run(['sudo', 'nordvpn', 'd'])
 
     return menu(path)
 
@@ -708,8 +715,11 @@ f'''Чтобы запустить парсер из поиска линкеди�
 
 
 if __name__ == '__main__':
-    print('Введите название вакансии:')
-    vacancy = str(input())
+    if os.environ.get('vacancy'):
+        vacancy = os.environ['vacancy']
+    else:
+        print('Введите название вакансии:')
+        vacancy = str(input())
     path = f'{os.getcwd()}/data/{vacancy}/'
 
     try:
