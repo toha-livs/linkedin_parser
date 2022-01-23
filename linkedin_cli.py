@@ -17,6 +17,9 @@ from selenium.webdriver.common.action_chains import ActionChains
 
 import logging
 from selenium.webdriver.remote.remote_connection import LOGGER as LOGGER_SELENIUM
+
+from utils import save_excel_func, clean_id_from_link
+
 LOGGER_SELENIUM.setLevel(logging.ERROR)
 
 
@@ -130,22 +133,9 @@ def start_parse(start, end, login, password, url, path, excel: str = None):
 
     def save_json_candidates(_candidates):
         for candidate in _candidates:
-            name = candidate['linkedin'][28:candidate['linkedin'].find('?')].replace('/', '')  # removed  'https://www.linkedin.com/in/'
+            name = clean_id_from_link(candidate['linkedin'])
             save_to_file(f'{path}/nsort/{name}.json', candidate)
 
-    def save_excel_candidates(_candidates):
-        excel_file = xlwt.Workbook()
-        sheet = excel_file.add_sheet('nsort', cell_overwrite_ok=True)
-        sheet.write(0, 0, 'Linkedin')
-        sheet.write(0, 1, 'position')
-
-        for row, candidate in enumerate(_candidates):
-            row += 1
-
-            sheet.write(row, 0, candidate['linkedin'])
-            sheet.write(row, 1, candidate['position'])
-
-        excel_file.save(f'{path}{excel}.xlsx')
 
     with webdriver.Chrome(executable_path=f'{os.getcwd()}/chromedriver', chrome_options=profile) as driver:  # firefox_profile=firefox_profile
         driver.set_page_load_timeout(60)
@@ -166,7 +156,13 @@ def start_parse(start, end, login, password, url, path, excel: str = None):
         print('json файлы сохранены')
         if excel:
             try:
-                save_excel_candidates(candidates)
+                save_excel_func(
+                    data=candidates,
+                    headers=['linkedin', 'position'],
+                    path=path,
+                    file_name=excel,
+                    sheet_name='nsort'
+                )
                 print(f"в excel сохранено {len(candidates)}")
             except:
                 print(f'Ошибка сохранения excel...\n\n{traceback.format_exc()}')
@@ -174,18 +170,41 @@ def start_parse(start, end, login, password, url, path, excel: str = None):
     return menu(path)
 
 
-def sort_for_parse(words, path):
+def sort_for_parse(words, path, excel=None):
     data = add_to_list(path + 'nsort/')
 
-    for item in data:
-        parser = {'name': item['linkedin'].replace('https://www.linkedin.com/in/', '').replace('/', ''), 'position' : item['position'], 'linkedin' : item['linkedin']}
-        keywords = str(item['position'])
-        
-        for word in words:
-            if str(word) in keywords and 'Looking' not in keywords and 'HR' not in keywords and 'Recruiter' not in keywords:
-                save_to_file(f'{path}sort/{item["linkedin"].replace("https://www.linkedin.com/in/", "").replace("/", "")}.json', parser)
+    excel_added = []
 
+    for item in data:
+        parser = {
+            'name': clean_id_from_link(item['linkedin']),
+            'position' : item['position'],
+            'linkedin' : item['linkedin']
+        }
+        keywords = str(item['position'])
+
+        if 'Looking' in keywords:
+            continue
+        if 'HR' in keywords:
+            continue
+        if 'Recruiter' in keywords:
+            continue
+
+        for word in words:
+            if str(word) in keywords:
+                save_to_file(f'{path}sort/{parser["name"]}.json', parser)
+                excel_added.append(parser)
+                break
+    if excel:
+        save_excel_func(
+            data=excel_added,
+            headers=['name', 'position', 'linkedin'],
+            path=path,
+            file_name=excel,
+            sheet_name='sort'
+        )
     return menu(path)
+
 
 def get_timedelta(el):
     start = el['timePeriod']['startDate']
@@ -198,6 +217,7 @@ def get_timedelta(el):
             start_date.month - end_date.month)
 
     return delta if delta != 0 else 1
+
 
 def full_parser(path, api, start_slice, end_slice):
     counter = 0
@@ -311,35 +331,46 @@ def start_full_parse(path):
 
     return menu(path)
 
-def sort_for_invite(path, exp_start, exp_end, skills_list):
+
+def sort_for_invite(path, exp_start, exp_end, skills_list, excel=None):
     data = add_to_list(path + 'full/')
 
+    added_to_excel = []
+
     for item in data:
-        parser = {'linkedin' : item["linkedin_link"], 'skills' : item['skills'], 'positions' : item['positions'], 'education' : item['education']}
-        positions = str(item['positions'])
+        parser = {
+            'linkedin': item["linkedin_link"],
+            'skills': item['skills'],
+            'positions': item['positions'],
+            'education': item['education']
+        }
         skills = item["skills"]
         exp = item["experience"]
-        education = str(item['education'])
-        counter = 0
 
-        if exp_end == 0:
-            for skill in skills_list:
-                if exp >= exp_start and skill in skills:
-                    counter += 1
-                    save_to_file(f'{path}invite/{item["firstname"]} {item["lastname"]}.json', parser)
-                else:
-                    continue
-        else:
-            for skill in skills_list:
-                if exp >= exp_start and exp <= exp_end and skill in skills:
-                    counter += 1
-                    save_to_file(f'{path}invite/{item["firstname"]} {item["lastname"]}.json', parser)
-                else:
-                    continue
+        if exp >= exp_start is False:
+            continue
+        if exp_end != 0 and exp <= exp_end:
+            continue
 
-    print(f'Всего подходящих для инвайтинга и конвертации в xslx файл {counter}')
+        for skill in skills_list:
+            if skill in skills:
+                save_to_file(f'{path}invite/{item["firstname"]} {item["lastname"]}.json', parser)
+                added_to_excel.append(parser)
+                break
+
+    if excel:
+        save_excel_func(
+            data=added_to_excel,
+            headers=['linkedin', 'skills', 'positions', 'education'],
+            path=path,
+            file_name=excel,
+            sheet_name='invite'
+        )
+
+    print(f'Всего подходящих для инвайтинга и конвертации в xslx файл {len(added_to_excel)}')
 
     return menu(path)
+
 
 def invite(path, api, invite_start, invite_end):
     data = add_to_list(path + 'invite/')
@@ -559,9 +590,11 @@ f'''Чтобы запустить парсер из поиска линкеди�
                     break
                 else:
                     words.append(word)
+
+            excel = input('Если хотите сохранить результат в excel, введите название файла\n(Оставьте пустым если не желаете):\n')
             
             print('Запускаю процесс сортировки, после окончания произойдёт возврат в главное меню')
-            sort_for_parse(words, path)
+            sort_for_parse(words, path, excel)
     elif choice == 3:
         print('Чтобы продолжить полный парсинг введите 1, чтобы вернуться в меню введите 0:')
         re_choice = int(input())
@@ -592,8 +625,9 @@ f'''Чтобы запустить парсер из поиска линкеди�
                 else:
                     skills_list.append(skill)
 
+            excel = input('Если хотите сохранить результат в excel, введите название файла\n(Оставьте пустым если не желаете):\n')
             print('Запускаю процесс сортировки, после окончания произойдёт возврат в главное меню')
-            sort_for_invite(path, exp_start, exp_end, skills_list)
+            sort_for_invite(path, exp_start, exp_end, skills_list, excel)
     elif choice == 5:
         print('Чтобы продолжить инвайтинг введите 1, чтобы вернуться в меню введите 0:')
         re_choice = int(input())
