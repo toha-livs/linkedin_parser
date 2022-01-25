@@ -115,19 +115,29 @@ def start_parse(start, end, login, password, url, path, excel: str = None):
         _driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
 
         _candidates = []
-        for row in range(10):
-            li_index = row + 1
+        for ind, _ in enumerate(driver.find_elements_by_class_name('reusable-search__result-container')):
+        # for row in range(10):
+            li_index = ind + 1
             try:
                 link = _driver.find_element_by_xpath(
-                    f'//*[@id="main"]/div/div/div[2]/ul/li[{li_index}]/div/div/div[2]/div[1]/div[1]/div/span[1]/span/a').get_attribute(
-                    'href')
+                    f'//*[@id="main"]/div/div/div[2]/ul/li[{li_index}]/div/div/div[2]/div[1]/div[1]/div/span[1]/span/a'
+                ).get_attribute('href')
             except NoSuchElementException:
-                link = None
+                try:
+                    link = _driver.find_element_by_xpath(
+                        f'//*[@id="main"]/div/div/div/ul/li[{li_index}]/div/div/div[2]/div[1]/div[1]/div/span[1]/span/a'
+                    ).get_attribute('href')
+                except NoSuchElementException:
+                    link = None
             try:
                 position = _driver.find_element_by_xpath(
                     f'//*[@id="main"]/div/div/div[2]/ul/li[{li_index}]/div/div/div[2]/div[1]/div[2]/div/div[1]').text
             except NoSuchElementException:
-                position = None
+                try:
+                    position = _driver.find_element_by_xpath(
+                        f'//*[@id="main"]/div/div/div/ul/li[{li_index}]/div/div/div[2]/div[1]/div[2]/div/div[1]').text
+                except NoSuchElementException:
+                    position = None
             _candidates.append({'position': position, 'linkedin': link})
         return _candidates
 
@@ -135,7 +145,6 @@ def start_parse(start, end, login, password, url, path, excel: str = None):
         for candidate in _candidates:
             name = clean_id_from_link(candidate['linkedin'])
             save_to_file(f'{path}/nsort/{name}.json', candidate)
-
 
     with webdriver.Chrome(executable_path=f'{os.getcwd()}/chromedriver', chrome_options=profile) as driver:  # firefox_profile=firefox_profile
         driver.set_page_load_timeout(60)
